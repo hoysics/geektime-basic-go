@@ -1,9 +1,9 @@
 package middleware
 
 import (
+	"gitee.com/geekbang/basic-go/webook/internal/web"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/hoysics/geektime-basic-go/webook/internal/web"
 	"log"
 	"net/http"
 	"strings"
