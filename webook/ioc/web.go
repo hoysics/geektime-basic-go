@@ -3,9 +3,9 @@ package ioc
 import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/hoysics/geektime-basic-go/pkg/ginx/middlewares/ratelimit"
 	"github.com/hoysics/geektime-basic-go/webook/internal/web"
 	"github.com/hoysics/geektime-basic-go/webook/internal/web/middleware"
+	"github.com/hoysics/geektime-basic-go/webook/pkg/ginx/middlewares/ratelimit"
 	"github.com/redis/go-redis/v9"
 	"strings"
 	"time"

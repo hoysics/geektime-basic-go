@@ -14,6 +14,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -227,4 +228,52 @@ func TestMock(t *testing.T) {
 		Email: "123@qq.com",
 	})
 	t.Log(err)
+}
+
+func TestUserHandler_LoginJWT(t *testing.T) {
+	// 创建 UserHandler 实例
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	userHandler := &UserHandler{
+		svc: svcmocks.NewMockUserService(ctrl), // 替换为你自己的 Service Mock
+	}
+
+	// 创建一个模拟的 Gin 上下文
+	reqBody := `{"email": "test@example.com", "password": "password123"}`
+	req, _ := http.NewRequest("POST", "/login", strings.NewReader(reqBody))
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = req
+
+	// 调用 LoginJWT 方法
+	userHandler.LoginJWT(ctx)
+
+	// 检查响应
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, but got %d", http.StatusOK, w.Code)
+	}
+
+	// 在这里添加更多的断言，检查登录状态等
+
+	// 注意：这里的测试并没有覆盖所有可能的情况，你可能需要根据实际情况编写更全面的测试用例
+}
+
+func TestUserHandler_setJWTToken(t *testing.T) {
+	userHandler := &UserHandler{}
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+
+	uid := int64(123)
+	err := userHandler.setJWTToken(ctx, uid)
+
+	if err != nil {
+		t.Errorf("Error setting JWT token: %v", err)
+	}
+
+	token := ctx.GetHeader("x-jwt-token")
+	if token == "" {
+		t.Error("JWT token not set in the header")
+	}
+
 }
