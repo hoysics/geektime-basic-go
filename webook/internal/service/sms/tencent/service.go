@@ -3,9 +3,9 @@ package tencent
 import (
 	"context"
 	"fmt"
-	mysms "gitee.com/geekbang/basic-go/webook/internal/service/sms"
 	"github.com/ecodeclub/ekit"
 	"github.com/ecodeclub/ekit/slice"
+	mysms "github.com/hoysics/geektime-basic-go/webook/internal/service/sms"
 	sms "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/sms/v20210111"
 )
 
