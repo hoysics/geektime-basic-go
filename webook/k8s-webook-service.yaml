@@ -3,6 +3,7 @@ kind: Service
 metadata:
   name: webook-live
 spec:
+#  ClusterIP
   type: LoadBalancer
   selector:
     app: webook-live
@@ -10,6 +11,6 @@ spec:
     - protocol: TCP
       name: http
       port: 81
-      targetPort: 8081
+      targetPort: 8080
 
   
