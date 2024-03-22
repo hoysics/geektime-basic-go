@@ -1,45 +1,40 @@
 package web
 
 import (
+	"errors"
 	"fmt"
-	"gitee.com/geekbang/basic-go/webook/internal/domain"
-	"gitee.com/geekbang/basic-go/webook/internal/service"
 	regexp "github.com/dlclark/regexp2"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
-	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/go-playground/validator/v10"
+	"github.com/hoysics/geektime-basic-go/webook/internal/domain"
+	"github.com/hoysics/geektime-basic-go/webook/internal/service"
 	"net/http"
 	"time"
 )
 
-const biz = "login"
-
-// 确保 UserHandler 上实现了 handler 接口
-var _ handler = &UserHandler{}
-
-// 这个更优雅
-var _ handler = (*UserHandler)(nil)
-
 // UserHandler 我准备在它上面定义跟用户有关的路由
 type UserHandler struct {
-	svc         service.UserService
-	codeSvc     service.CodeService
+	svc         *service.UserService
 	emailExp    *regexp.Regexp
 	passwordExp *regexp.Regexp
+
+	validate *validator.Validate
 }
 
-func NewUserHandler(svc service.UserService, codeSvc service.CodeService) *UserHandler {
+func NewUserHandler(svc *service.UserService) *UserHandler {
 	const (
 		emailRegexPattern    = "^\\w+([-+.]\\w+)*@\\w+([-.]\\w+)*\\.\\w+([-.]\\w+)*$"
 		passwordRegexPattern = `^(?=.*[A-Za-z])(?=.*\d)(?=.*[$@$!%*#?&])[A-Za-z\d$@$!%*#?&]{8,}$`
 	)
 	emailExp := regexp.MustCompile(emailRegexPattern, regexp.None)
 	passwordExp := regexp.MustCompile(passwordRegexPattern, regexp.None)
+	validate := validator.New()
 	return &UserHandler{
 		svc:         svc,
 		emailExp:    emailExp,
 		passwordExp: passwordExp,
-		codeSvc:     codeSvc,
+		validate:    validate,
 	}
 }
 
@@ -52,105 +47,10 @@ func (u *UserHandler) RegisterRoutesV1(ug *gin.RouterGroup) {
 
 func (u *UserHandler) RegisterRoutes(server *gin.Engine) {
 	ug := server.Group("/users")
-	ug.GET("/profile", u.ProfileJWT)
+	ug.GET("/profile", u.Profile)
 	ug.POST("/signup", u.SignUp)
-	//ug.POST("/login", u.Login)
-	ug.POST("/login", u.LoginJWT)
+	ug.POST("/login", u.Login)
 	ug.POST("/edit", u.Edit)
-	// PUT "/login/sms/code" 发验证码
-	// POST "/login/sms/code" 校验验证码
-	// POST /sms/login/code
-	// POST /code/sms
-	ug.POST("/login_sms/code/send", u.SendLoginSMSCode)
-	ug.POST("/login_sms", u.LoginSMS)
-}
-
-func (u *UserHandler) LoginSMS(ctx *gin.Context) {
-	type Req struct {
-		Phone string `json:"phone"`
-		Code  string `json:"code"`
-	}
-	var req Req
-	if err := ctx.Bind(&req); err != nil {
-		return
-	}
-
-	// 这边，可以加上各种校验
-	ok, err := u.codeSvc.Verify(ctx, biz, req.Phone, req.Code)
-	if err != nil {
-		ctx.JSON(http.StatusOK, Result{
-			Code: 5,
-			Msg:  "系统错误",
-		})
-		return
-	}
-	if !ok {
-		ctx.JSON(http.StatusOK, Result{
-			Code: 4,
-			Msg:  "验证码有误",
-		})
-		return
-	}
-
-	// 我这个手机号，会不会是一个新用户呢？
-	// 这样子
-	user, err := u.svc.FindOrCreate(ctx, req.Phone)
-	if err != nil {
-		ctx.JSON(http.StatusOK, Result{
-			Code: 5,
-			Msg:  "系统错误",
-		})
-		return
-	}
-
-	// 这边要怎么办呢？
-	// 从哪来？
-	if err = u.setJWTToken(ctx, user.Id); err != nil {
-		ctx.JSON(http.StatusOK, Result{
-			Code: 5,
-			Msg:  "系统错误",
-		})
-		return
-	}
-
-	ctx.JSON(http.StatusOK, Result{
-		Msg: "验证码校验通过",
-	})
-}
-
-func (u *UserHandler) SendLoginSMSCode(ctx *gin.Context) {
-	type Req struct {
-		Phone string `json:"phone"`
-	}
-	var req Req
-	if err := ctx.Bind(&req); err != nil {
-		return
-	}
-	// 是不是一个合法的手机号码
-	// 考虑正则表达式
-	if req.Phone == "" {
-		ctx.JSON(http.StatusOK, Result{
-			Code: 4,
-			Msg:  "输入有误",
-		})
-		return
-	}
-	err := u.codeSvc.Send(ctx, biz, req.Phone)
-	switch err {
-	case nil:
-		ctx.JSON(http.StatusOK, Result{
-			Msg: "发送成功",
-		})
-	case service.ErrCodeSendTooMany:
-		ctx.JSON(http.StatusOK, Result{
-			Msg: "发送太频繁，请稍后再试",
-		})
-	default:
-		ctx.JSON(http.StatusOK, Result{
-			Code: 5,
-			Msg:  "系统错误",
-		})
-	}
 }
 
 func (u *UserHandler) SignUp(ctx *gin.Context) {
@@ -196,7 +96,7 @@ func (u *UserHandler) SignUp(ctx *gin.Context) {
 		Email:    req.Email,
 		Password: req.Password,
 	})
-	if err == service.ErrUserDuplicateEmail {
+	if errors.Is(err, service.ErrUserDuplicateEmail) {
 		ctx.String(http.StatusOK, "邮箱冲突")
 		return
 	}
@@ -206,56 +106,6 @@ func (u *UserHandler) SignUp(ctx *gin.Context) {
 	}
 
 	ctx.String(http.StatusOK, "注册成功")
-}
-
-func (u *UserHandler) LoginJWT(ctx *gin.Context) {
-	type LoginReq struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
-
-	var req LoginReq
-	if err := ctx.Bind(&req); err != nil {
-		return
-	}
-	user, err := u.svc.Login(ctx, req.Email, req.Password)
-	if err == service.ErrInvalidUserOrPassword {
-		ctx.String(http.StatusOK, "用户名或密码不对")
-		return
-	}
-	if err != nil {
-		ctx.String(http.StatusOK, "系统错误")
-		return
-	}
-
-	// 步骤2
-	// 在这里用 JWT 设置登录态
-	// 生成一个 JWT token
-
-	if err = u.setJWTToken(ctx, user.Id); err != nil {
-		ctx.String(http.StatusOK, "系统错误")
-		return
-	}
-	fmt.Println(user)
-	ctx.String(http.StatusOK, "登录成功")
-	return
-}
-
-func (u *UserHandler) setJWTToken(ctx *gin.Context, uid int64) error {
-	claims := UserClaims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute * 30)),
-		},
-		Uid:       uid,
-		UserAgent: ctx.Request.UserAgent(),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
-	tokenStr, err := token.SignedString([]byte("95osj3fUD7fo0mlYdDbncXz4VD2igvf0"))
-	if err != nil {
-		return err
-	}
-	ctx.Header("x-jwt-token", tokenStr)
-	return nil
 }
 
 func (u *UserHandler) Login(ctx *gin.Context) {
@@ -269,7 +119,7 @@ func (u *UserHandler) Login(ctx *gin.Context) {
 		return
 	}
 	user, err := u.svc.Login(ctx, req.Email, req.Password)
-	if err == service.ErrInvalidUserOrPassword {
+	if errors.Is(err, service.ErrInvalidUserOrPassword) {
 		ctx.String(http.StatusOK, "用户名或密码不对")
 		return
 	}
@@ -285,62 +135,67 @@ func (u *UserHandler) Login(ctx *gin.Context) {
 	// 我可以随便设置值了
 	// 你要放在 session 里面的值
 	sess.Set("userId", user.Id)
-	sess.Options(sessions.Options{
-		Secure:   true,
-		HttpOnly: true,
-		// 一分钟过期
-		MaxAge: 60,
-	})
 	sess.Save()
 	ctx.String(http.StatusOK, "登录成功")
 	return
 }
 
-func (u *UserHandler) Logout(ctx *gin.Context) {
-	sess := sessions.Default(ctx)
-	// 我可以随便设置值了
-	// 你要放在 session 里面的值
-	sess.Options(sessions.Options{
-		//Secure: true,
-		//HttpOnly: true,
-		MaxAge: -1,
-	})
-	sess.Save()
-	ctx.String(http.StatusOK, "退出登录成功")
-}
-
 func (u *UserHandler) Edit(ctx *gin.Context) {
+	type EditReq struct {
+		Email    string    `json:"email"`
+		Nickname string    `json:"nickname,omitempty" validate:"min=6,max=10"`
+		Birthday time.Time `form:"birthday" time_format:"2006-01-02" time_utc:"1"`
+		Intro    string    `json:"intro,omitempty" validate:"min=1,max=100"`
+	}
 
-}
-
-func (u *UserHandler) ProfileJWT(ctx *gin.Context) {
-	c, _ := ctx.Get("claims")
-	// 你可以断定，必然有 claims
-	//if !ok {
-	//	// 你可以考虑监控住这里
-	//	ctx.String(http.StatusOK, "系统错误")
-	//	return
-	//}
-	// ok 代表是不是 *UserClaims
-	claims, ok := c.(*UserClaims)
-	if !ok {
-		// 你可以考虑监控住这里
-		ctx.String(http.StatusOK, "系统错误")
+	var req EditReq
+	if err := ctx.Bind(&req); err != nil {
 		return
 	}
-	println(claims.Uid)
-	ctx.String(http.StatusOK, "你的 profile")
-	// 这边就是你补充 profile 的其它代码
+	if err := u.validate.Struct(req); err != nil {
+		ctx.String(http.StatusOK, fmt.Sprintf(`参数不符合规则: %s`, err.Error()))
+		return
+	}
+	// 调用一下 svc 的方法
+	err := u.svc.Edit(ctx, domain.User{
+		Email:    req.Email,
+		Nickname: req.Nickname,
+		Birthday: req.Birthday,
+		Intro:    req.Intro,
+	})
+	if err != nil {
+		ctx.String(http.StatusOK, "系统异常")
+		return
+	}
+
+	ctx.String(http.StatusOK, "编辑成功")
 }
 
 func (u *UserHandler) Profile(ctx *gin.Context) {
-	ctx.String(http.StatusOK, "这是你的 Profile")
-}
+	type ProfileReq struct {
+		Email string `json:"email"`
+	}
+	var req ProfileReq
+	if err := ctx.Bind(&req); err != nil {
+		return
+	}
+	if err := u.validate.Struct(req); err != nil {
+		ctx.String(http.StatusOK, fmt.Sprintf(`参数不符合规则: %s`, err.Error()))
+		return
+	}
+	// 调用一下 svc 的方法
+	profile, err := u.svc.FindByEmail(ctx, req.Email)
+	if err != nil {
+		ctx.String(http.StatusOK, "系统异常")
+		return
+	}
 
-type UserClaims struct {
-	jwt.RegisteredClaims
-	// 声明你自己的要放进去 token 里面的数据
-	Uid int64
-	// 自己随便加
-	UserAgent string
+	ctx.JSON(
+		http.StatusOK,
+		gin.H{
+			"nickname": profile.Nickname,
+			"birthday": profile.Birthday,
+			"intro":    profile.Intro,
+		},
+	)
 }

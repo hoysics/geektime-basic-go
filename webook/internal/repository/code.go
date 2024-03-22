@@ -2,7 +2,7 @@ package repository
 
 import (
 	"context"
-	"gitee.com/geekbang/basic-go/webook/internal/repository/cache"
+	"github.com/hoysics/geektime-basic-go/webook/internal/repository/cache"
 )
 
 var (
@@ -10,26 +10,21 @@ var (
 	ErrCodeVerifyTooManyTimes = cache.ErrCodeVerifyTooManyTimes
 )
 
-type CodeRepository interface {
-	Store(ctx context.Context, biz string,
-		phone string, code string) error
-	Verify(ctx context.Context, biz, phone, inputCode string) (bool, error)
-}
-type CachedCodeRepository struct {
-	cache cache.CodeCache
+type CodeRepository struct {
+	cache *cache.CodeCache
 }
 
-func NewCodeRepository(c cache.CodeCache) CodeRepository {
-	return &CachedCodeRepository{
+func NewCodeRepository(c *cache.CodeCache) *CodeRepository {
+	return &CodeRepository{
 		cache: c,
 	}
 }
 
-func (repo *CachedCodeRepository) Store(ctx context.Context, biz string,
+func (repo *CodeRepository) Store(ctx context.Context, biz string,
 	phone string, code string) error {
 	return repo.cache.Set(ctx, biz, phone, code)
 }
 
-func (repo *CachedCodeRepository) Verify(ctx context.Context, biz, phone, inputCode string) (bool, error) {
+func (repo *CodeRepository) Verify(ctx context.Context, biz, phone, inputCode string) (bool, error) {
 	return repo.cache.Verify(ctx, biz, phone, inputCode)
 }
