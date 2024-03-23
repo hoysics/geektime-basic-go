@@ -3,12 +3,12 @@ package fixer
 import (
 	"context"
 	"errors"
-	"gitee.com/geekbang/basic-go/webook/pkg/logger"
-	"gitee.com/geekbang/basic-go/webook/pkg/migrator"
-	"gitee.com/geekbang/basic-go/webook/pkg/migrator/events"
-	"gitee.com/geekbang/basic-go/webook/pkg/migrator/fixer"
-	"gitee.com/geekbang/basic-go/webook/pkg/saramax"
 	"github.com/IBM/sarama"
+	migrator "github.com/hoysics/geektime-basic-go/homework13"
+	"github.com/hoysics/geektime-basic-go/homework13/events"
+	"github.com/hoysics/geektime-basic-go/homework13/fixer"
+	"github.com/hoysics/geektime-basic-go/homework13/logger"
+	"github.com/hoysics/geektime-basic-go/homework13/saramax"
 	"gorm.io/gorm"
 	"time"
 )

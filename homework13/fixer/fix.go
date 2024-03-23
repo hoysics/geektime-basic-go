@@ -2,7 +2,7 @@ package fixer
 
 import (
 	"context"
-	"gitee.com/geekbang/basic-go/webook/pkg/migrator"
+	migrator "github.com/hoysics/geektime-basic-go/homework13"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
