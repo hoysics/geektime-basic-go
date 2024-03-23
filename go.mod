@@ -25,6 +25,7 @@ require (
 	github.com/gorilla/sessions v1.2.1
 	github.com/lithammer/shortuuid/v4 v4.0.0
 	github.com/nacos-group/nacos-sdk-go/v2 v2.2.5
+	github.com/olivere/elastic/v7 v7.0.32
 	github.com/prometheus/client_golang v1.12.2
 	github.com/redis/go-redis/v9 v9.5.1
 	github.com/spf13/pflag v1.0.5
@@ -110,12 +111,14 @@ require (
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.17.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
+	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
