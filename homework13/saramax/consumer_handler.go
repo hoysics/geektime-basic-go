@@ -2,8 +2,8 @@ package saramax
 
 import (
 	"encoding/json"
-	"gitee.com/geekbang/basic-go/webook/pkg/logger"
 	"github.com/IBM/sarama"
+	"github.com/hoysics/geektime-basic-go/homework13/logger"
 )
 
 type HandlerV1[T any] func(msg *sarama.ConsumerMessage, t T) error

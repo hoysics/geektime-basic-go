@@ -3,8 +3,8 @@ package saramax
 import (
 	"context"
 	"encoding/json"
-	"gitee.com/geekbang/basic-go/webook/pkg/logger"
 	"github.com/IBM/sarama"
+	"github.com/hoysics/geektime-basic-go/homework13/logger"
 	"time"
 )
 
