@@ -77,7 +77,7 @@ func (v *Validator[T]) Incr() *Validator[T] {
 func (v *Validator[T]) Validate(ctx context.Context) error {
 	var eg errgroup.Group
 	eg.Go(func() error {
-		v.validateBaseToTarget(ctx)
+		v.validateBaseToTarget(ctx, 10)
 		return nil
 	})
 
@@ -88,111 +88,81 @@ func (v *Validator[T]) Validate(ctx context.Context) error {
 	return eg.Wait()
 }
 
-// <utime, id> 然后执行 SELECT * FROM xx WHERE utime > ? ORDER BY id
-// 索引排序，还是内存排序？
-
-// Validate 调用者可以通过 ctx 来控制校验程序退出
-// 全量校验，是不是一条条比对？
-// 所以要从数据库里面一条条查询出来
-// utime 上面至少要有一个索引，并且 utime 必须是第一列
-// <utime, col1, col2>, <utime> 这种可以
-// <col1, utime> 这种就不可以
-func (v *Validator[T]) validateBaseToTarget(ctx context.Context) {
+func (v *Validator[T]) validateBaseToTarget(ctx context.Context, batchSize int) {
 	offset := 0
 	for {
-		//
 		if v.highLoad.Load() {
 			// 挂起
 		}
 
-		// 找到了 base 中的数据
-		// 例如 .Order("id DESC")，每次插入数据，就会导致你的 offset 不准了
-		// 如果我的表没有 id 这个列怎么办？
-		// 找一个类似的列，比如说 ctime (创建时间）
-		// 作业。你改成批量，性能要好很多
-		src, err := v.fromBase(ctx, offset)
+		srcBatch, err := v.fromBaseBatch(ctx, offset, batchSize)
 		switch err {
 		case context.Canceled, context.DeadlineExceeded:
 			// 超时或者被人取消了
 			return
 		case nil:
-			// 你真的查到了数据
-			// 要去 target 里面找对应的数据
-			var dst T
-			err = v.target.Where("id = ?", src.ID()).First(&dst).Error
-			// 我在这里，怎么办？
-			switch err {
-			case context.Canceled, context.DeadlineExceeded:
-				// 超时或者被人取消了
+			if len(srcBatch) == 0 {
+				// 没有更多数据了
 				return
-			case nil:
-				// 找到了。你要开始比较
-				// 你怎么比较？
-				// 能不能这么比？
-				// 1. src == dst
-				// 这是利用反射来比
-				// 这个原则上是可以的。
-				//if reflect.DeepEqual(src, dst) {
-				//
-				//}
-				//var srcAny any = src
-				//if c1, ok := srcAny.(interface {
-				//	// 有没有自定义的比较逻辑
-				//	CompareTo(c2 migrator.Entity) bool
-				//}); ok {
-				//	// 有，我就用它的
-				//	if !c1.CompareTo(dst) {
-				//
-				//	}
-				//} else {
-				//	// 没有，我就用反射
-				//	if !reflect.DeepEqual(src, dst) {
-				//
-				//	}
-				//}
+			}
+			dstMap := make(map[int64]T)
+			// 从 target 里面批量找对应的数据
+			for _, src := range srcBatch {
+				dst, err := v.targetBatch(ctx, src.ID())
+				switch err {
+				case context.Canceled, context.DeadlineExceeded:
+					// 超时或者被人取消了
+					return
+				case nil:
+					dstMap[src.ID()] = dst
+				case gorm.ErrRecordNotFound:
+					// 这意味着，target 里面少了数据
+					v.notify(ctx, src.ID(), events.InconsistentEventTypeTargetMissing)
+				default:
+					v.l.Error("查询 target 数据失败", logger.Error(err))
+				}
+			}
+
+			for _, src := range srcBatch {
+				dst, exists := dstMap[src.ID()]
+				if !exists {
+					continue
+				}
+
 				if !src.CompareTo(dst) {
 					// 不相等
 					// 这时候，我要干嘛？上报给 Kafka，就是告知数据不一致
-					v.notify(ctx, src.ID(),
-						events.InconsistentEventTypeNEQ)
+					v.notify(ctx, src.ID(), events.InconsistentEventTypeNEQ)
 				}
-
-			case gorm.ErrRecordNotFound:
-				// 这意味着，target 里面少了数据
-				v.notify(ctx, src.ID(),
-					events.InconsistentEventTypeTargetMissing)
-			default:
-				// 这里，要不要汇报，数据不一致？
-				// 你有两种做法：
-				// 1. 我认为，大概率数据是一致的，我记录一下日志，下一条
-				v.l.Error("查询 target 数据失败", logger.Error(err))
-				// 2. 我认为，出于保险起见，我应该报数据不一致，试着去修一下
-				// 如果真的不一致了，没事，修它
-				// 如果假的不一致（也就是数据一致），也没事，就是多余修了一次
-				// 不好用哪个 InconsistentType
 			}
 
-		case gorm.ErrRecordNotFound:
-			// 比完了。没数据了，全量校验结束了
-			// 同时支持全量校验和增量校验，你这里就不能直接返回
-			// 在这里，你要考虑：有些情况下，用户希望退出，有些情况下。用户希望继续
-			// 当用户希望继续的时候，你要 sleep 一下
-			if v.sleepInterval <= 0 {
-				return
-			}
-			time.Sleep(v.sleepInterval)
-			continue
 		default:
-			// 数据库错误
-			v.l.Error("校验数据，查询 base 出错",
-				logger.Error(err))
-			// 课堂演示方便，你可以删掉
-			time.Sleep(time.Second)
-			// offset 最好是挪一下
-			// 这里要不要挪
+			v.l.Error("校验数据，查询 base 出错", logger.Error(err))
 		}
-		offset++
+		offset += batchSize
 	}
+}
+
+// 从数据库中批量获取源数据
+func (v *Validator[T]) fromBaseBatch(ctx context.Context, offset, batchSize int) ([]T, error) {
+	var result []T
+
+	if err := v.base.Offset(offset).Limit(batchSize).Find(&result).Error; err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// 从数据库中批量获取目标数据
+func (v *Validator[T]) targetBatch(ctx context.Context, id int64) (T, error) {
+	var result T
+
+	if err := v.base.Where("id = ?", id).First(&result).Error; err != nil {
+		return result, err
+	}
+
+	return result, nil
 }
 
 func (v *Validator[T]) fullFromBase(ctx context.Context, offset int) (T, error) {
