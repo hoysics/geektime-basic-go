@@ -18,6 +18,11 @@ type MockUserService struct {
 	recorder *MockUserServiceMockRecorder
 }
 
+func (m *MockUserService) Edit(ctx context.Context, u domain.User) error {
+	//TODO implement me
+	panic("implement me")
+}
+
 // MockUserServiceMockRecorder is the mock recorder for MockUserService.
 type MockUserServiceMockRecorder struct {
 	mock *MockUserService

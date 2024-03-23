@@ -10,7 +10,7 @@ package evtmocks
 
 import (
 	context "context"
-	"gitee.com/geekbang/basic-go/webook/pkg/migrator/events"
+	"github.com/hoysics/geektime-basic-go/homework13/events"
 	reflect "reflect"
 
 	gomock "go.uber.org/mock/gomock"
