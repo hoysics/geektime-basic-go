@@ -43,6 +43,7 @@ func (p *PickerBuilder) Build(info base.PickerBuildInfo) balancer.Picker {
 			cc.weight = int(weight)
 			//group, _ := md["group"]
 			//cc.group =group
+			cc.labels = md["labels"].([]string)
 		}
 
 		if cc.weight == 0 {
@@ -75,15 +76,25 @@ func (p *Picker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 
 	var total int
 	var maxCC *conn
+	// 要计算当前权重
+	//label := info.Ctx.Value("label")
 	for _, cc := range p.conns {
 		if !cc.available {
 			continue
 		}
+
+		// 如果要是 cc 里面的所有标签都不包含这个 label ，就跳过
+
+		// 性能最好就是在 cc 上用原子操作
+		// 但是筛选结果不会严格符合 WRR 算法
+		// 整体效果可以
+		//cc.lock.Lock()
 		total += cc.weight
 		cc.currentWeight = cc.currentWeight + cc.weight
 		if maxCC == nil || cc.currentWeight > maxCC.currentWeight {
 			maxCC = cc
 		}
+		//cc.lock.Unlock()
 	}
 
 	// 更新
@@ -104,6 +115,7 @@ func (p *Picker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 				return
 			case context.DeadlineExceeded:
 			case io.EOF, io.ErrUnexpectedEOF:
+				// 基本可以认为这个节点已经崩了
 				maxCC.available = true
 			// 可以考虑降低权重
 			default:
@@ -112,13 +124,31 @@ func (p *Picker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 					code := st.Code()
 					switch code {
 					case codes.Unavailable:
+						// 这里可能表达的是熔断
+						// 这里就要考虑挪走该节点，这个节点已经不可用了
+						// 注意并发，这里可以用原子操作
 						maxCC.available = false
 						go func() {
+							// 你要开一个额外的 goroutine 去探活
+							// 借助 health check
+							// for 循环
 							if p.healthCheck(maxCC) {
+								// 放回来
 								maxCC.available = true
+								// 最好加点流量控制的措施
+								// maxCC.currentWeight
+								// 要求下一次选中 maxCC 的时候
+								// 掷骰子
 							}
 						}()
 					case codes.ResourceExhausted:
+						// 这里可能表达的是限流
+						// 你可以挪走
+						// 也可以留着，留着的话，你就要降低权重，
+						// 最好是 currentWeight 和 weight 都调低
+						// 减少它被选中的概率
+
+						// 加一个错误码表达降级
 					}
 				}
 			}
@@ -186,6 +216,7 @@ func (p *Picker) healthCheck(cc *conn) bool {
 type conn struct {
 	// （初始）权重
 	weight int
+	labels []string
 	// 有效权重
 	//efficientWeight int
 	currentWeight int
