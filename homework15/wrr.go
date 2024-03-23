@@ -59,8 +59,9 @@ func (p *PickerBuilder) Build(info base.PickerBuildInfo) balancer.Picker {
 
 type Picker struct {
 	//	 这个才是真的执行负载均衡的地方
-	conns []*conn
-	mutex sync.Mutex
+	conns     []*conn
+	mutex     sync.Mutex
+	threshold int // 阈值
 }
 
 // Pick 在这里实现基于权重的负载均衡算法
@@ -119,6 +120,57 @@ func (p *Picker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 						}()
 					case codes.ResourceExhausted:
 					}
+				}
+			}
+		},
+	}, nil
+}
+
+func (p *Picker) PickAndAdjust(info balancer.PickInfo) (balancer.PickResult, error) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	if len(p.conns) == 0 {
+		// 没有候选节点
+		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
+	}
+
+	var total int
+	var maxCC *conn
+	for _, cc := range p.conns {
+		if !cc.available {
+			continue
+		}
+		total += cc.weight
+		cc.currentWeight = cc.currentWeight + cc.weight
+		if maxCC == nil || cc.currentWeight > maxCC.currentWeight {
+			maxCC = cc
+		}
+	}
+
+	// 更新
+	maxCC.currentWeight = maxCC.currentWeight - total
+
+	// 调整权重
+	if maxCC.currentWeight < p.threshold {
+		maxCC.currentWeight = p.threshold
+	} else if maxCC.currentWeight > 100 { // 假设最大权重为100
+		maxCC.currentWeight = 100
+	}
+
+	// maxCC 就是挑出来的
+	return balancer.PickResult{
+		SubConn: maxCC.cc,
+		Done: func(info balancer.DoneInfo) {
+			// 根据调用结果调整权重
+			err := info.Err
+			if err == nil {
+				// 提高权重
+				maxCC.currentWeight += 10 // 假设每次增加10
+			} else {
+				// 降低权重
+				maxCC.currentWeight -= 10 // 假设每次减少10
+				if maxCC.currentWeight < p.threshold {
+					maxCC.currentWeight = p.threshold
 				}
 			}
 		},
