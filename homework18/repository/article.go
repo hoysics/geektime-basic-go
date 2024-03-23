@@ -5,6 +5,7 @@ import (
 	"github.com/ecodeclub/ekit/slice"
 	"github.com/hoysics/geektime-basic-go/homework18/domain"
 	"github.com/hoysics/geektime-basic-go/homework18/repository/dao"
+	"sort"
 )
 
 type articleRepository struct {
@@ -25,13 +26,37 @@ func (a *articleRepository) SearchArticle(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	// 将文章按照收藏数和点赞数进行排序
+	sort.Slice(arts, func(i, j int) bool {
+		// 比较收藏数，收藏数高的排在前面
+		if arts[i].CollectCount > arts[j].CollectCount {
+			return true
+		} else if arts[i].CollectCount < arts[j].CollectCount {
+			return false
+		}
+
+		// 收藏数相同时，比较点赞数，点赞数高的排在前面
+		if arts[i].LikeCount > arts[j].LikeCount {
+			return true
+		} else if arts[i].LikeCount < arts[j].LikeCount {
+			return false
+		}
+
+		// 最后按照标签数量排序，标签数量少的排在前面
+		return len(arts[i].Tags) < len(arts[j].Tags)
+	})
+
+	// 转换成 domain.Article 类型并返回结果
 	return slice.Map(arts, func(idx int, src dao.Article) domain.Article {
 		return domain.Article{
-			Id:      src.Id,
-			Title:   src.Title,
-			Status:  src.Status,
-			Content: src.Content,
-			Tags:    src.Tags,
+			Id:           src.Id,
+			Title:        src.Title,
+			Status:       src.Status,
+			Content:      src.Content,
+			Tags:         src.Tags,
+			CollectCount: src.CollectCount,
+			LikeCount:    src.LikeCount,
 		}
 	}), nil
 }
