@@ -8,12 +8,12 @@ package main
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/hoysics/geektime-basic-go/ioc"
 	"github.com/hoysics/geektime-basic-go/webook/internal/repository"
 	"github.com/hoysics/geektime-basic-go/webook/internal/repository/cache"
 	"github.com/hoysics/geektime-basic-go/webook/internal/repository/dao"
 	"github.com/hoysics/geektime-basic-go/webook/internal/service"
 	"github.com/hoysics/geektime-basic-go/webook/internal/web"
+	"github.com/hoysics/geektime-basic-go/webook/ioc"
 )
 
 // Injectors from wire.go:
