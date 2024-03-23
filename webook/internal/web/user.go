@@ -81,19 +81,30 @@ func (u *UserHandler) LoginSMS(ctx *gin.Context) {
 	}
 
 	// 这边，可以加上各种校验
+	var hasErr bool
+	var finalResult Result
+
+	defer func() {
+		if hasErr {
+			ctx.JSON(http.StatusOK, finalResult)
+		}
+	}()
+
 	ok, err := u.codeSvc.Verify(ctx, biz, req.Phone, req.Code)
 	if err != nil {
-		ctx.JSON(http.StatusOK, Result{
+		hasErr = true
+		finalResult = Result{
 			Code: 5,
 			Msg:  "系统错误",
-		})
+		}
 		return
 	}
 	if !ok {
-		ctx.JSON(http.StatusOK, Result{
+		hasErr = true
+		finalResult = Result{
 			Code: 4,
 			Msg:  "验证码有误",
-		})
+		}
 		return
 	}
 
@@ -101,20 +112,22 @@ func (u *UserHandler) LoginSMS(ctx *gin.Context) {
 	// 这样子
 	user, err := u.svc.FindOrCreate(ctx, req.Phone)
 	if err != nil {
-		ctx.JSON(http.StatusOK, Result{
+		hasErr = true
+		finalResult = Result{
 			Code: 5,
 			Msg:  "系统错误",
-		})
+		}
 		return
 	}
 
 	// 这边要怎么办呢？
 	// 从哪来？
 	if err = u.setJWTToken(ctx, user.Id); err != nil {
-		ctx.JSON(http.StatusOK, Result{
+		hasErr = true
+		finalResult = Result{
 			Code: 5,
 			Msg:  "系统错误",
-		})
+		}
 		return
 	}
 
