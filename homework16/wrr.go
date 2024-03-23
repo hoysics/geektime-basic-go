@@ -207,6 +207,67 @@ func (p *Picker) PickAndAdjust(info balancer.PickInfo) (balancer.PickResult, err
 	}, nil
 }
 
+func (p *Picker) PickAndAdjustV2(info balancer.PickInfo) (balancer.PickResult, error) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	if len(p.conns) == 0 {
+		// 没有候选节点
+		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
+	}
+
+	var total int
+	var maxCC *conn
+	for _, cc := range p.conns {
+		if !cc.available {
+			continue
+		}
+		total += cc.weight
+		cc.currentWeight = cc.currentWeight + cc.weight
+		if maxCC == nil || cc.currentWeight > maxCC.currentWeight {
+			maxCC = cc
+		}
+	}
+	maxCC.currentWeight = maxCC.currentWeight - total
+
+	return balancer.PickResult{
+		SubConn: maxCC.cc,
+		Done: func(info balancer.DoneInfo) {
+			err := info.Err
+			if err == nil {
+				// 请求成功，可以考虑增加权重
+				return
+			}
+			switch err {
+			case context.Canceled:
+				return
+			case context.DeadlineExceeded:
+			case io.EOF, io.ErrUnexpectedEOF:
+				// 连接出现问题，标记为不可用
+				maxCC.available = false
+			default:
+				st, ok := status.FromError(err)
+				if ok {
+					code := st.Code()
+					switch code {
+					case codes.Unavailable:
+						// 触发限流，降低节点权重
+						maxCC.currentWeight -= 10 // 假设每次减少10
+					case codes.ResourceExhausted:
+						// 触发熔断，将节点暂时挪出可用节点列表
+						maxCC.available = false
+						go func() {
+							if p.healthCheck(maxCC) {
+								// 健康检查通过，将节点重新加入可用节点列表
+								maxCC.available = true
+							}
+						}()
+					}
+				}
+			}
+		},
+	}, nil
+}
+
 func (p *Picker) healthCheck(cc *conn) bool {
 	// 调用 grpc 内置的那个 health check 接口
 	return true
